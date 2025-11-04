@@ -2,7 +2,28 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/Watermark-Bot.iml" filepath="$PROJECT_DIR$/.idea/Watermark-Bot.iml" />
+      <!-- Register the main project module -->
+      <module 
+        fileurl="file://$PROJECT_DIR$/.idea/Watermark-Bot.iml" 
+        filepath="$PROJECT_DIR$/.idea/Watermark-Bot.iml" 
+        group="Telegram Video Watermark Adder Bot" />
     </modules>
+  </component>
+
+  <!-- Python SDK reference for 2025 environments -->
+  <component name="PyCharmModuleSettings">
+    <option name="pythonInterpreter" value="Python 3.12" />
+    <option name="useProjectInterpreter" value="true" />
+    <option name="testFramework" value="pytest" />
+  </component>
+
+  <!-- Version control integration -->
+  <component name="VcsDirectoryMappings">
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
+  </component>
+
+  <!-- Metadata -->
+  <component name="ProjectType">
+    <option name="id" value="Python" />
   </component>
 </project>
