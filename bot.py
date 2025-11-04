@@ -470,7 +470,7 @@ async def button(bot, cmd: CallbackQuery):
          InlineKeyboardButton("7%", callback_data="size_7"),
          InlineKeyboardButton("10%", callback_data="size_10"),
          InlineKeyboardButton("15%", callback_data="size_15"),
-         InlineKeyboardButton("20%", callback_data="size_20")],
+         InlineKeyboardButton("20%", callback_data="size_20")]
         [InlineKeyboardButton("25%", callback_data="size_25"),
          InlineKeyboardButton("30%", callback_data="size_30"),
          InlineKeyboardButton("35%", callback_data="size_35"),
