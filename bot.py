@@ -1,5 +1,5 @@
 # bot.py
-# (c) @AbirHasan2005 — integrated full workflow, cleaned and fixed
+# (c) @Pglinsan — integrated full workflow, cleaned and fixed
 
 import os
 import time
@@ -44,7 +44,6 @@ def get_user_comp_settings(user_id: int):
 async def HelpWatermark(bot, cmd):
     if not await db.is_user_exist(cmd.from_user.id):
         await db.add_user(cmd.from_user.id)
-        # notify log channel
         try:
             await bot.send_message(
                 Config.LOG_CHANNEL,
@@ -103,6 +102,391 @@ async def SettingsBot(bot, cmd):
         fsub = await handle_force_subscribe(bot, cmd)
         if fsub == 400:
             return
+
+    ## --- Determine position tag --- ##
+    watermark_position = await db.get_position(cmd.from_user.id)
+    if watermark_position == "5:main_h-overlay_h":
+        position_tag = "Bottom Left"
+    elif watermark_position == "main_w-overlay_w-5:main_h-overlay_h-5":
+        position_tag = "Bottom Right"
+    elif watermark_position == "main_w-overlay_w-5:5":
+        position_tag = "Top Right"
+    elif watermark_position == "5:5":
+        position_tag = "Top Left"
+    else:
+        position_tag = "Top Left"
+
+    ## --- Determine size tag --- ##
+    watermark_size = await db.get_size(cmd.from_user.id)
+    try:
+        s_val = int(watermark_size)
+    except Exception:
+        s_val = 7
+
+    size_map = {
+        5: "5%", 7: "7%", 10: "10%", 15: "15%", 20: "20%",
+        25: "25%", 30: "30%", 35: "35%", 40: "40%", 45: "45%"
+    }
+    size_tag = size_map.get(s_val, "7%")
+
+    # compression settings (temporary, in-memory)
+    user_cfg = get_user_comp_settings(cmd.from_user.id)
+    comp_tag = "Enabled" if user_cfg.get("enabled", True) else "Disabled"
+    crf_tag = user_cfg.get("crf", 18)
+
+    ## --- Reply with settings keyboard --- ##
+    keyboard = [
+        [InlineKeyboardButton(f"Watermark Position - {position_tag}", callback_data="noop")],
+        [
+            InlineKeyboardButton("Set Top Left", callback_data="position_5:5"),
+            InlineKeyboardButton("Set Top Right", callback_data="position_main_w-overlay_w-5:5")
+        ],
+        [
+            InlineKeyboardButton("Set Bottom Left", callback_data="position_5:main_h-overlay_h"),
+            InlineKeyboardButton("Set Bottom Right", callback_data="position_main_w-overlay_w-5:main_h-overlay_h-5")
+        ],
+        [InlineKeyboardButton(f"Watermark Size - {size_tag}", callback_data="noop")],
+        [
+            InlineKeyboardButton("5%", callback_data="size_5"),
+            InlineKeyboardButton("7%", callback_data="size_7"),
+            InlineKeyboardButton("10%", callback_data="size_10"),
+            InlineKeyboardButton("15%", callback_data="size_15"),
+            InlineKeyboardButton("20%", callback_data="size_20"),
+        ],
+        [
+            InlineKeyboardButton("25%", callback_data="size_25"),
+            InlineKeyboardButton("30%", callback_data="size_30"),
+            InlineKeyboardButton("35%", callback_data="size_35"),
+            InlineKeyboardButton("40%", callback_data="size_40"),
+            InlineKeyboardButton("45%", callback_data="size_45"),
+        ],
+        [
+            InlineKeyboardButton(f"Toggle Compression ({comp_tag})", callback_data="togglecompress"),
+            InlineKeyboardButton(f"Set CRF 18", callback_data="crf_18")
+        ],
+        [
+            InlineKeyboardButton("Set CRF 20", callback_data="crf_20"),
+            InlineKeyboardButton("Set CRF 23", callback_data="crf_23"),
+            InlineKeyboardButton("Set CRF 25", callback_data="crf_25"),
+            InlineKeyboardButton("Set CRF 28", callback_data="crf_28")
+        ],
+        [InlineKeyboardButton("Reset Settings To Default", callback_data="reset")]
+    ]
+
+    await cmd.reply_text(
+        text=f"Here you can set your Watermark Settings:\n\nWatermark Position - {position_tag}\nWatermark Size - {size_tag}\n\nAuto Compression - {comp_tag}\nCompression Quality (CRF) - {crf_tag}",
+        disable_web_page_preview=True,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+# ------------------ FULL Video/Photo Handler (Option A) ------------------ #
+@AHBot.on_message((filters.video | filters.document | filters.photo) & filters.private)
+async def video_handler(bot, cmd):
+    # ensure user exists in DB
+    if not await db.is_user_exist(cmd.from_user.id):
+        await db.add_user(cmd.from_user.id)
+        try:
+            await bot.send_message(
+                Config.LOG_CHANNEL,
+                f"#NEW_USER: \n\nNew User [{cmd.from_user.first_name}](tg://user?id={cmd.from_user.id}) started @{Config.BOT_USERNAME} !!"
+            )
+        except Exception:
+            pass
+
+    # enforce force-subscribe if configured
+    if Config.UPDATES_CHANNEL:
+        fsub = await handle_force_subscribe(bot, cmd)
+        if fsub == 400:
+            return
+
+    # If user sent an image -> save it as watermark
+    if cmd.photo or (cmd.document and cmd.document.mime_type.startswith("image/")):
+        editable = await cmd.reply_text("Downloading Image ...")
+        watermark_dir = os.path.join(Config.DOWN_PATH, str(cmd.from_user.id))
+        os.makedirs(watermark_dir, exist_ok=True)
+        watermark_path = os.path.join(watermark_dir, "thumb.jpg")
+        try:
+            await bot.download_media(
+                message=cmd,
+                file_name=watermark_path
+            )
+            await editable.edit("This saved as next video watermark!\n\nNow send any video to start adding watermark to the video!")
+        except Exception as e:
+            await editable.edit(f"Failed to save watermark image: {e}")
+        return
+
+    # Not an image -> must be video or video document
+    file_type = cmd.video or cmd.document
+    if not file_type or not file_type.mime_type.startswith("video/"):
+        await cmd.reply_text("This is not a video!")
+        return
+
+    # Setup working dir and status file
+    working_dir = os.path.join(Config.DOWN_PATH, "WatermarkAdder", str(cmd.from_user.id))
+    os.makedirs(working_dir, exist_ok=True)
+    status = os.path.join(Config.DOWN_PATH, "WatermarkAdder", "status.json")
+
+    # check watermark exists for user
+    watermark_path = os.path.join(Config.DOWN_PATH, str(cmd.from_user.id), "thumb.jpg")
+    if not os.path.exists(watermark_path):
+        await cmd.reply_text("You didn't set any watermark!\n\nSend any JPG or PNG picture ...")
+        return
+
+    # prevent concurrent runs using status.json
+    if os.path.exists(status):
+        await cmd.reply_text("Sorry, currently I am busy with another task!\n\nTry again after sometime!")
+        return
+
+    preset = Config.PRESET
+    editable = await cmd.reply_text("Downloading Video ...", parse_mode="Markdown")
+    # mark status
+    try:
+        with open(status, "w") as f:
+            statusMsg = {
+                'chat_id': cmd.from_user.id,
+                'message': editable.message_id
+            }
+            json.dump(statusMsg, f, indent=2)
+    except Exception as e:
+        print("Could not create status file:", e)
+
+    dl_loc = os.path.join(Config.DOWN_PATH, "WatermarkAdder", str(cmd.from_user.id))
+    os.makedirs(dl_loc, exist_ok=True)
+    the_media = None
+    user_info = f"**UserID:** #id{cmd.from_user.id}\n**Name:** [{cmd.from_user.first_name}](tg://user?id={cmd.from_user.id})"
+
+    # Download media and forward to logs
+    try:
+        forwarded_video = await cmd.forward(Config.LOG_CHANNEL)
+        logs_msg = await bot.send_message(
+            chat_id=Config.LOG_CHANNEL,
+            text=f"Download Started!\n\n{user_info}",
+            reply_to_message_id=forwarded_video.message_id,
+            disable_web_page_preview=True,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Ban User", callback_data=f"ban_{cmd.from_user.id}")]])
+        )
+        await asyncio.sleep(2)
+        c_time = time.time()
+        the_media = await bot.download_media(
+            message=cmd,
+            file_name=dl_loc,
+            progress=progress_for_pyrogram,
+            progress_args=("Downloading Sir ...", editable, logs_msg, c_time)
+        )
+        if the_media is None:
+            await delete_trash(status)
+            await delete_trash(the_media)
+            await editable.edit("Unable to Download The Video!")
+            return
+    except Exception as err:
+        await delete_trash(status)
+        await delete_trash(the_media)
+        print(f"Download Failed: {err}")
+        try:
+            await editable.edit("Unable to Download The Video!")
+        except Exception:
+            pass
+        return
+
+    # get watermark position/size
+    watermark_position = await db.get_position(cmd.from_user.id)
+    if watermark_position == "5:main_h-overlay_h":
+        position_tag = "Bottom Left"
+    elif watermark_position == "main_w-overlay_w-5:main_h-overlay_h-5":
+        position_tag = "Bottom Right"
+    elif watermark_position == "main_w-overlay_w-5:5":
+        position_tag = "Top Right"
+    elif watermark_position == "5:5":
+        position_tag = "Top Left"
+    else:
+        position_tag = "Top Left"
+        watermark_position = "5:5"
+
+    watermark_size = await db.get_size(cmd.from_user.id)
+
+    await editable.edit(f"Trying to add watermark to the video at {position_tag} corner ...\n\nPlease Wait!")
+
+    # duration metadata
+    duration = 0
+    try:
+        metadata = extractMetadata(createParser(the_media))
+        if metadata.has("duration"):
+            duration = metadata.get('duration').seconds
+    except Exception:
+        duration = 0
+
+    the_media_file_name = os.path.basename(the_media)
+    main_file_name = os.path.splitext(the_media_file_name)[0]
+    output_vid = main_file_name + "_[" + str(cmd.from_user.id) + "]_[" + str(int(time.time())) + "]_[@Pglinsan]" + ".mp4"
+    progress_path = os.path.join(dl_loc, "progress.txt")
+
+    # Add watermark (vidmark from core.ffmpeg)
+    try:
+        output_vid = await vidmark(
+            the_media,
+            editable,
+            progress_path,
+            watermark_path,
+            output_vid,
+            duration,
+            logs_msg,
+            status,
+            preset,
+            watermark_position,
+            watermark_size
+        )
+    except Exception as err:
+        print(f"Unable to Add Watermark: {err}")
+        try:
+            await editable.edit("Unable to add watermark!")
+            await logs_msg.edit(f"#ERROR: Unable to add Watermark!\n\n**Error:** `{err}`")
+        except Exception:
+            pass
+        await delete_all()
+        return
+
+    if output_vid is None or not os.path.exists(output_vid):
+        try:
+            await editable.edit("Something went wrong while processing.")
+            await logs_msg.edit("#ERROR: Something went wrong!")
+        except Exception:
+            pass
+        await delete_all()
+        return
+
+    # --- Compression (automatic if enabled) ---
+    await editable.edit("Watermark added successfully!\n\nChecking compression settings...")
+    user_cfg = get_user_comp_settings(cmd.from_user.id)
+    if user_cfg.get("enabled", True):
+        await editable.edit("Compression is enabled for you. Starting compression (near-lossless)...")
+        compressed_output = os.path.splitext(output_vid)[0] + "_compressed.mp4"
+        try:
+            user_crf = user_cfg.get("crf", 18)
+            compressed = await compress_video(output_vid, editable, progress_path, compressed_output, duration, logs_msg, status, crf=user_crf)
+            if compressed and os.path.exists(compressed):
+                output_vid = compressed
+                await editable.edit("Compression completed. Uploading compressed video...")
+            else:
+                await editable.edit("Compression failed or skipped. Uploading original watermarked video...")
+        except Exception as e:
+            print(f"Compression error: {e}")
+            await editable.edit("Compression encountered an error. Uploading original watermarked video...")
+    else:
+        await editable.edit("Auto-compression is disabled for you. Uploading original watermarked video...")
+
+    # Prepare thumbnail and metadata for upload
+    await editable.edit("Trying to upload ...")
+    try:
+        await logs_msg.edit("Trying to Upload ...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Ban User", callback_data=f"ban_{cmd.from_user.id}")]]))
+    except Exception:
+        pass
+
+    width = 100
+    height = 100
+    duration = 0
+    try:
+        metadata = extractMetadata(createParser(output_vid))
+        if metadata.has("duration"):
+            duration = metadata.get('duration').seconds
+        if metadata.has("width"):
+            width = metadata.get("width")
+        if metadata.has("height"):
+            height = metadata.get("height")
+    except Exception:
+        pass
+
+    video_thumbnail = None
+    try:
+        video_thumbnail = os.path.join(dl_loc, f"{int(time.time())}.jpg")
+        ttl = random.randint(0, int(duration) - 1) if duration > 1 else 0
+        file_generator_command = [
+            "ffmpeg",
+            "-ss",
+            str(ttl),
+            "-i",
+            output_vid,
+            "-vframes",
+            "1",
+            video_thumbnail
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *file_generator_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        # Convert and resize thumbnail
+        Image.open(video_thumbnail).convert("RGB").save(video_thumbnail)
+        img = Image.open(video_thumbnail)
+        img = img.resize((width, height))
+        img.save(video_thumbnail, "JPEG")
+    except Exception as err:
+        print(f"Thumbnail Error: {err}")
+        video_thumbnail = None
+
+    # If file too large, fallback to Streamtape (based on original logic)
+    try:
+        file_size = os.path.getsize(output_vid)
+    except Exception:
+        file_size = 0
+
+    if (int(file_size) > 2097152000) and (Config.ALLOW_UPLOAD_TO_STREAMTAPE is True) and (Config.STREAMTAPE_API_USERNAME != "NoNeed") and (Config.STREAMTAPE_API_PASS != "NoNeed"):
+        await editable.edit(f"Sorry Sir,\n\nFile Size Become {humanbytes(file_size)} !!\nI can't Upload to Telegram!\n\nSo Now Uploading to Streamtape ...")
+        try:
+            async with aiohttp.ClientSession() as session:
+                Main_API = "https://api.streamtape.com/file/ul?login={}&key={}"
+                hit_api = await session.get(Main_API.format(Config.STREAMTAPE_API_USERNAME, Config.STREAMTAPE_API_PASS))
+                json_data = await hit_api.json()
+                temp_api = json_data["result"]["url"]
+                files = {'file1': open(output_vid, 'rb')}
+                response = await session.post(temp_api, data=files)
+                data_f = await response.json(content_type=None)
+                download_link = data_f["result"]["url"]
+                filename = os.path.basename(output_vid).replace("_", " ")
+                text_edit = f"File Uploaded to Streamtape!\n\n**File Name:** `{filename}`\n**Size:** `{humanbytes(file_size)}`\n**Link:** `{download_link}`"
+                await editable.edit(text_edit, parse_mode="Markdown", disable_web_page_preview=True, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open Link", url=download_link)]]))
+                await logs_msg.edit("Successfully Uploaded File to Streamtape!\n\nI am Free Now!", parse_mode="Markdown", disable_web_page_preview=True)
+        except Exception as e:
+            print(f"Streamtape Error: {e}")
+            await editable.edit("Sorry, Something went wrong!\n\nCan't Upload to Streamtape. You can report at [Support Group](https://t.me/Dads_links).")
+            try:
+                await logs_msg.edit(f"Got Error While Uploading to Streamtape!\n\nError: {e}")
+            except Exception:
+                pass
+        await delete_all()
+        return
+
+    # Upload to Telegram using send_video_handler
+    await asyncio.sleep(1)
+    try:
+        sent_vid = await send_video_handler(bot, cmd, output_vid, video_thumbnail, duration, width, height, editable, logs_msg, file_size)
+    except FloodWait as e:
+        # FloodWait object may expose either .x or .value depending on version
+        wait_time = getattr(e, "x", None) or getattr(e, "value", None) or 0
+        print(f"Got FloodWait of {wait_time}s ...")
+        await asyncio.sleep(wait_time)
+        await asyncio.sleep(2)
+        sent_vid = await send_video_handler(bot, cmd, output_vid, video_thumbnail, duration, width, height, editable, logs_msg, file_size)
+    except Exception as err:
+        print(f"Unable to Upload Video: {err}")
+        try:
+            await logs_msg.edit(f"#ERROR: Unable to Upload Video!\n\n**Error:** `{err}`")
+        except Exception:
+            pass
+        await delete_all()
+        return
+
+    # cleanup & notify
+    await delete_all()
+    try:
+        await editable.delete()
+    except Exception:
+        pass
+    try:
+             return
 
     ## --- Determine position tag --- ##
     watermark_position = await db.get_position(cmd.from_user.id)
