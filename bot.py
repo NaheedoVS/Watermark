@@ -466,7 +466,7 @@ async def button(bot, cmd: CallbackQuery):
 						disable_web_page_preview=True
 					)
 					return
-			except        [InlineKeyboardButton("5%", callback_data="size_5"),
+			except       
          InlineKeyboardButkeyboard = [
     [
         InlineKeyboardButton("5%", callback_data="size_5"),
