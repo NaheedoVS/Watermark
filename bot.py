@@ -455,35 +455,44 @@ async def button(bot, cmd: CallbackQuery):
 		return
 
 	if "refreshmeh" in cb_data:
-		if Config.UPDATES_CHANNEL:
-			invite_link = await bot.create_chat_invite_link(int(Config.UPDATES_CHANNEL))
-			try:
-				user = await bot.get_chat_member(int(Config.UPDATES_CHANNEL), cmd.message.chat.id)
-				if user.status == "kicked":
-					await cmd.message.edit(
-						text="Sorry Sir, You are Banned to use me. Contact my [Support Group](https://t.me/Dads_links).",
-						parse_mode="markdown",
-						disable_web_page_preview=True
-					)
-					return
-			except        [InlineKeyboardButton("5%", callback_data="size_5"),
-         InlineKeyboardButton("7%", callback_data="size_7"),
-         InlineKeyboardButton("10%", callback_data="size_10"),
-         InlineKeyboardButton("15%", callback_data="size_15"),
-         InlineKeyboardButton("20%", callback_data="size_20")],
-        [InlineKeyboardButton("25%", callback_data="size_25"),
-         InlineKeyboardButton("30%", callback_data="size_30"),
-         InlineKeyboardButton("35%", callback_data="size_35"),
-         InlineKeyboardButton("40%", callback_data="size_40"),
-         InlineKeyboardButton("45%", callback_data="size_45")],
-        [InlineKeyboardButton("Reset Settings to Default", callback_data="reset")]
-    ])
+    if Config.UPDATES_CHANNEL:
+        invite_link = await bot.create_chat_invite_link(int(Config.UPDATES_CHANNEL))
+        try:
+            user = await bot.get_chat_member(int(Config.UPDATES_CHANNEL), cmd.message.chat.id)
+            if user.status == "kicked":
+                await cmd.message.edit(
+                    text="Sorry Sir, You are Banned to use me. Contact my [Support Group](https://t.me/Dads_links).",
+                    parse_mode="markdown",
+                    disable_web_page_preview=True
+                )
+                return
+        except Exception:
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("5%", callback_data="size_5"),
+                    InlineKeyboardButton("7%", callback_data="size_7"),
+                    InlineKeyboardButton("10%", callback_data="size_10"),
+                    InlineKeyboardButton("15%", callback_data="size_15"),
+                    InlineKeyboardButton("20%", callback_data="size_20")
+                ],
+                [
+                    InlineKeyboardButton("25%", callback_data="size_25"),
+                    InlineKeyboardButton("30%", callback_data="size_30"),
+                    InlineKeyboardButton("35%", callback_data="size_35"),
+                    InlineKeyboardButton("40%", callback_data="size_40"),
+                    InlineKeyboardButton("45%", callback_data="size_45")
+                ],
+                [
+                    InlineKeyboardButton("Reset Settings to Default", callback_data="reset")
+                ]
+            ])
 
-    await message.reply_text(
-        text="⚙️ **Your Watermark Settings:**",
-        parse_mode="Markdown",
-        reply_markup=keyboard
-    )
+            await cmd.message.reply_text(
+                text="⚙️ **Your Watermark Settings:**",
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+
 
 
 # --- Video/Photo Handler ---
