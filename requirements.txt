@@ -1,10 +1,19 @@
-pyrogram
-TgCrypto
-hachoir
-Pillow
-humanfriendly
-motor
-aiofiles
-aiohttp
-dnspython
-psutil
+# Core Telegram framework
+pyrogram==2.0.106
+TgCrypto==1.2.5
+
+# Async HTTP & file utilities
+aiohttp==3.10.8
+aiofiles==24.1.0
+
+# MongoDB async driver
+motor==3.6.0
+dnspython==2.7.0
+
+# Media handling & metadata
+hachoir==3.3.0
+Pillow==10.4.0
+
+# Utilities
+humanfriendly==10.0
+psutil==6.0.0
